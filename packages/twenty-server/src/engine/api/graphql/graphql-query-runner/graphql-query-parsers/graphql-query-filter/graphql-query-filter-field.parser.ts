@@ -32,6 +32,11 @@ import {
 import { GraphqlQueryFilterConditionParser } from './graphql-query-filter-condition.parser';
 import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/query-builder/workspace-select-query-builder';
 
+// Under a negation, a condition that evaluates to NULL (e.g. a comparison on a NULL column)
+// must count as "not matching", otherwise SQL three-valued logic makes NOT(...) drop the row
+const toNullSafeCondition = (sql: string): string =>
+  `COALESCE((${sql}), false)`;
+
 export class GraphqlQueryFilterFieldParser {
   private flatObjectMetadata: FlatObjectMetadata;
   private flatFieldMetadataMaps: FlatEntityMaps<OrmFlatFieldMetadata>;
@@ -69,6 +74,7 @@ export class GraphqlQueryFilterFieldParser {
     filterValue: any,
     isFirst = false,
     useDirectTableReference = false,
+    isNegated = false,
   ): void {
     const { fieldMetadata, isReferencedByFieldName } =
       resolveFilterKeyFieldMetadata({
@@ -136,6 +142,7 @@ export class GraphqlQueryFilterFieldParser {
         filterValue,
         isFirst,
         useDirectTableReference,
+        isNegated,
       );
     }
     const [[operator, value]] = Object.entries(filterValue);
@@ -151,10 +158,12 @@ export class GraphqlQueryFilterFieldParser {
       useDirectTableReference,
     });
 
+    const conditionSql = isNegated ? toNullSafeCondition(sql) : sql;
+
     if (isFirst) {
-      queryBuilder.where(sql, params);
+      queryBuilder.where(conditionSql, params);
     } else {
-      queryBuilder.andWhere(sql, params);
+      queryBuilder.andWhere(conditionSql, params);
     }
   }
 
@@ -292,6 +301,7 @@ export class GraphqlQueryFilterFieldParser {
     fieldValue: any,
     isFirst = false,
     useDirectTableReference = false,
+    isNegated = false,
   ): void {
     const compositeType = compositeTypeDefinitions.get(
       fieldMetadata.type as CompositeFieldMetadataType,
@@ -337,11 +347,13 @@ export class GraphqlQueryFilterFieldParser {
         useDirectTableReference,
       });
 
+      const conditionSql = isNegated ? toNullSafeCondition(sql) : sql;
+
       if (isFirst && index === 0) {
-        queryBuilder.where(sql, params);
+        queryBuilder.where(conditionSql, params);
       }
 
-      queryBuilder.andWhere(sql, params);
+      queryBuilder.andWhere(conditionSql, params);
     });
   }
 }
